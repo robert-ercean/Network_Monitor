@@ -5,15 +5,13 @@ Broadcast wlan1 throughput every second in JSON:
     {"t": 1716123456,
      "rx": 12345,
      "tx": 6789,
-     "clients": [
-         {"ip": "192.168.4.2", "mac": "aa:bb:cc:dd:ee:ff"},
-         ...
-     ],
+     "clients": [192.168.4.2, 192.168.4.3, ...]
+     "macs": [aa:bb:cc:dd:ee:ff, xx:yy:zz:ww:nn:mm, ...]
      "temp": 43.2
     }
 
 • Assumes wlan1 is the Pi's uplink to the router
-• Broadcasts on UDP/4000 inside the AP network (192.168.4.0/24)
+• Unicasts to the ESP_ADDR:4000
 """
 
 import json, socket, time, pathlib, signal, sys, subprocess
