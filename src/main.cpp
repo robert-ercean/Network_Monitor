@@ -156,15 +156,18 @@ static inline void pwm_set_duty(uint8_t duty)
 /* ------------------------------------------------------------------------ *
  *                            MAIN LOGIC                                    *
  * ------------------------------------------------------------------------ */
-TFT_eSPI   tft;
-WiFiUDP    udp;
+#define MAX_CLIENTS 4
 
-enum DisplayMode : uint8_t { MODE_GRAPH = 0, MODE_STATS = 1, MODE_INFO = 2 };
+typedef struct {
+	String ip;
+	String mac;
+} client_t;
+
+TFT_eSPI	tft;
+WiFiUDP		udp;
+
+enum DisplayMode : uint8_t { MODE_GRAPH = 0, MODE_CLIENTS = 1, MODE_INFO = 2 };
 static volatile DisplayMode currentMode = MODE_GRAPH;
-
-
-static uint32_t maxRXSeen = 0;
-static uint32_t maxTXSeen = 0;
 
 struct Sample { uint32_t rx, tx; };
 static Sample  ring[MAX_SAMPLES];
@@ -182,7 +185,8 @@ static inline void addSample(uint32_t rx, uint32_t tx)
 static inline Sample getSample(uint16_t i)
 {
 	int idx = int(head) - 1 - i;
-	if (idx < 0) idx += MAX_SAMPLES;
+	if (idx < 0)
+		idx += MAX_SAMPLES;
 	return ring[idx];
 }
 
@@ -216,15 +220,22 @@ void drawDual()
 	tft.drawRect(left - 2, rxTop - 2, right - left + 4, paneH + 4, FRAME);
 	tft.drawRect(left - 2, txTop - 2, right - left + 4, paneH + 4, FRAME);
 
-	// Auto-scale
+	// Auto-scale the traces based on the maximum values seen i.e. last MAX_SAMPLES
 	uint32_t peakRX = 1, peakTX = 1;
 	for (uint16_t i = 0; i < count; ++i) {
 		Sample s = getSample(i);
 		peakRX = max(peakRX, s.rx);
 		peakTX = max(peakTX, s.tx);
 	}
-	yScaleRX += yAlpha * (max(yMin, peakRX/1000000.0f * yPad) - yScaleRX);
-	yScaleTX += yAlpha * (max(yMin, peakTX/1000000.0f * yPad) - yScaleTX);
+	yScaleRX += yAlpha * (max(yMin, peakRX / 1000000.0f * yPad) - yScaleRX);
+	yScaleTX += yAlpha * (max(yMin, peakTX / 1000000.0f * yPad) - yScaleTX);
+
+	// Show the current scale for both RX and TX graphs
+	tft.setTextDatum(TR_DATUM);
+	tft.setTextColor(CYAN, TFT_DARKCYAN);
+	tft.drawString(String(yScaleRX, 1) + " Mbps", right - 2, rxTop + 2);
+	tft.setTextColor(ORANGE, TFT_DARKCYAN);
+	tft.drawString(String(yScaleTX, 1) + " Mbps", right - 2, txTop + 2);
 
 	auto mapY = [&](uint32_t bps, float scale, uint8_t top) {
 		float f = (bps / 1000000.0f) / scale;
@@ -278,33 +289,42 @@ void drawDual()
 		pyRX = yRX;
 		pyTX = yTX;
 	}
-
-	// Peaks
-	tft.setTextDatum(BL_DATUM);
-	tft.setTextColor(TFT_WHITE, TFT_DARKCYAN);
-	float maxRX_Mbps = maxRXSeen / 1e6f;
-	float maxTX_Mbps = maxTXSeen / 1e6f;
-	tft.drawString("MAX RX " + String(maxRX_Mbps, 1) + "Mbps", 6, rxTop + paneH - 2);
-	tft.drawString("MAX TX " + String(maxTX_Mbps, 1) + "Mbps", 6, tft.height() - 2);
 }
 
-// TODO
-void drawStats(uint32_t rx, uint32_t tx) {
-	tft.fillScreen(NAVY);
-	tft.setTextDatum(MC_DATUM);
-	tft.setTextColor(TFT_WHITE, NAVY);
-	tft.drawString("Stats", tft.width()/2, 20);
-	tft.drawString("RX: " + String(rx/1e6f,1) + " Mb/s", tft.width()/2, 60);
-	tft.drawString("TX: " + String(tx/1e6f,1) + " Mb/s", tft.width()/2, 100);
-}
-
-// TODO
-void drawInfo() {
-	tft.fillScreen(NAVY);
+/* Clients list from the Pi's ARP cache */
+void drawClients(client_t *clients, size_t count) {
+	tft.fillScreen(TFT_GREENYELLOW);
 	tft.setTextDatum(TL_DATUM);
-	tft.setTextColor(CYAN, NAVY);
-	tft.drawString("Mode: info", 6, 6);
-	// todo
+	tft.setTextColor(TFT_BLACK, TFT_GREENYELLOW);
+	tft.drawString("CLIENTS", 6, 6);
+
+	uint8_t y = 20;
+	if (count == 0) {
+		tft.drawString("No clients connected", 6, y);
+		return;
+	}
+
+	// Draw the client list: IP on one line, MAC on the next
+	uint8_t mac_ident = 15;
+	for (size_t i = 0; i < count && i < MAX_CLIENTS; ++i) {
+		// Print IP address
+		tft.drawString(clients[i].ip, 6, y);
+		y += 10;
+		// Print MAC address immediately below
+		tft.drawString(clients[i].mac, 6 + mac_ident, y);
+		y += 16;  // leave a gap before the next entry
+	}
+}
+
+
+void drawInfo(float temp) {
+	tft.fillScreen(TFT_RED);
+	tft.setTextDatum(TL_DATUM);
+	tft.setTextColor(TFT_SILVER);
+	tft.drawString("INFO", 6, 6);
+	
+	tft.setTextColor(TFT_WHITE);
+	tft.drawString("Pi CPU temp: " + String(temp, 1) + " C", 6, 20);
 }
 
 static void connectWiFi()
@@ -325,13 +345,14 @@ static void connectWiFi()
 
 /* Interrupt for the push-down button with .25s debounce */
 void IRAM_ATTR buttonISR() {
-  static uint32_t last = 0;
-  uint32_t now = millis();
-  if (now - last > 250) {
-    currentMode = DisplayMode((currentMode + 1) % 3);
-    last = now;
-  }
+	static uint32_t last = 0;
+	uint32_t now = millis();
+	if (now - last > 250) {
+		currentMode = DisplayMode((currentMode + 1) % 3);
+		last = now;
+	}
 }
+
 void setup()
 {
 	Serial.begin(115200);
@@ -363,20 +384,31 @@ void loop()
 {
 	if (!udp.parsePacket()) return;
 
-	StaticJsonDocument<96> doc;
-	if (deserializeJson(doc, udp) != DeserializationError::Ok) return;
-	// check the button state for debugging with the serial monitor
-	Serial.printf("Button state: %d\n", gpio_read(BUTTON));
+	StaticJsonDocument<512> payload;
+	if (deserializeJson(payload, udp) != DeserializationError::Ok) return;
 
-	// Update the LCD with the newly acquired traffic samples
-	uint32_t rx = doc["rx"], tx = doc["tx"];
+	/* Fetch the data from the PiAP */
+	uint32_t rx = payload["rx"], tx = payload["tx"];
+	
+	JsonArray clients_ips = payload["clients"];
+	JsonArray clients_macs = payload["macs"];
+	if (clients_ips.size() != clients_macs.size()) {
+		Serial.println("Error: Mismatched clients array sizes");
+		return;
+	}
+	size_t clients_count = min(clients_ips.size(), (size_t) MAX_CLIENTS);
 
-	// update the all-time peaks:
-	maxRXSeen = max(maxRXSeen, rx);
-  	maxTXSeen = max(maxTXSeen, tx);
+	static client_t clients[MAX_CLIENTS];
+	for (size_t i = 0; i < clients_count; ++i) {
+		clients[i].ip  = clients_ips[i].as<String>();
+		clients[i].mac = clients_macs[i].as<String>();
+	}
 
+	float temp = payload["temp"];
 
 	addSample(rx, tx);
+
+	/* Adjust the LED's brightness based on the RX & TX traffic */
 	updateLED(rx, tx);
 
 	/* Draw the current mode */
@@ -384,11 +416,11 @@ void loop()
 		case MODE_GRAPH:
 		drawDual();
 		break;
-		case MODE_STATS:
-		drawStats(rx, tx);
+		case MODE_CLIENTS:
+		drawClients(clients, clients_count);
 		break;
 		case MODE_INFO:
-		drawInfo();
+		drawInfo(temp);
 		break;
 	}
 }
