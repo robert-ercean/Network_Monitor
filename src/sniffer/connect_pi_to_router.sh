@@ -1,6 +1,6 @@
 WLAN_ROUTER="wlan1"
-ROUTER_SSID="REMOVED_SSID"
-ROUTER_PASSWORD="REMOVED_PASSWORD"
+ROUTER_SSID="locodoco"
+ROUTER_PASSWORD="oopsiedoopsie"
 
 echo "=== Deleting old gateway connection"
 nmcli connection delete "$WLAN_ROUTER"
