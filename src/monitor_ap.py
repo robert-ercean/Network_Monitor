@@ -19,6 +19,7 @@ import json, socket, time, pathlib, signal, sys, subprocess
 IFACE_AP   = "wlan0"
 IFACE_FWD  = "wlan1"
 ESP_ADDR   = "192.168.4.110"
+BCAST_ADDR = "192.168.4.255"
 PORT       = 4000
 INTERVAL_S = 1.0
 
@@ -98,9 +99,9 @@ while True:
     except Exception:
         payload["temp"] = None
 
-    sock.sendto(json.dumps(payload).encode(), (ESP_ADDR, PORT))
+    sock.sendto(json.dumps(payload).encode(), (BCAST_ADDR, PORT))
 
     # debug prints
-    print(f"tx={tx_now - tx_prev} | rx={rx_now - rx_prev} => {ESP_ADDR}:{PORT}")
+    print(f"tx={tx_now - tx_prev} | rx={rx_now - rx_prev} => {BCAST_ADDR}:{PORT}")
 
     rx_prev, tx_prev, t_prev = rx_now, tx_now, t_now
