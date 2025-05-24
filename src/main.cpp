@@ -295,9 +295,10 @@ void drawDual()
 void drawClients(client_t *clients, size_t count) {
 	tft.fillScreen(TFT_GREENYELLOW);
 	tft.setTextDatum(TL_DATUM);
-	tft.setTextColor(TFT_BLACK, TFT_GREENYELLOW);
+	tft.setTextColor(TFT_BROWN, TFT_GREENYELLOW);
 	tft.drawString("CLIENTS", 6, 6);
 
+	tft.setTextColor(TFT_BLACK, TFT_GREENYELLOW);
 	uint8_t y = 20;
 	if (count == 0) {
 		tft.drawString("No clients connected", 6, y);
@@ -317,7 +318,7 @@ void drawClients(client_t *clients, size_t count) {
 }
 
 
-void drawInfo(float temp) {
+void drawInfo(float temp, float uplink_rssi, size_t mem_avail_MB) {
 	tft.fillScreen(TFT_RED);
 	tft.setTextDatum(TL_DATUM);
 	tft.setTextColor(TFT_SILVER);
@@ -325,6 +326,10 @@ void drawInfo(float temp) {
 	
 	tft.setTextColor(TFT_WHITE);
 	tft.drawString("Pi CPU temp: " + String(temp, 1) + " C", 6, 20);
+
+	tft.drawString("Uplink RSSI:" + String(uplink_rssi, 1) + "dBm", 6, 30);
+
+	tft.drawString("Free memory: " + String(mem_avail_MB) + " MB", 6, 40);
 }
 
 static void connectWiFi()
@@ -405,6 +410,8 @@ void loop()
 	}
 
 	float temp = payload["temp"];
+	float uplink_rssi = payload["uplink_rssi"];
+	size_t mem_avail_MB = payload["mem_avail_MB"];
 
 	addSample(rx, tx);
 
@@ -420,7 +427,7 @@ void loop()
 		drawClients(clients, clients_count);
 		break;
 		case MODE_INFO:
-		drawInfo(temp);
+		drawInfo(temp, uplink_rssi, mem_avail_MB);
 		break;
 	}
 }

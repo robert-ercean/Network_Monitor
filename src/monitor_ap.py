@@ -14,7 +14,7 @@ Broadcast wlan1 throughput every second in JSON:
 • Unicasts to the ESP_ADDR:4000
 """
 
-import json, socket, time, pathlib, signal, sys, subprocess
+import json, socket, time, pathlib, signal, sys, subprocess, re
 
 IFACE_AP   = "wlan0"
 IFACE_FWD  = "wlan1"
@@ -99,8 +99,23 @@ while True:
     except Exception:
         payload["temp"] = None
 
-    sock.sendto(json.dumps(payload).encode(), (BCAST_ADDR, PORT))
+    # We'll also get the uplink signal strength
+    out = subprocess.check_output(["iw", "dev", IFACE_FWD, "link"]).decode()
+    m = re.search(r"signal: ([-0-9.]+) dBm", out)
+    payload["uplink_rssi"] = float(m.group(1)) if m else None
 
+
+    # We'll also send the remaining RAM available on the Pi
+    available_ram_kB = 0
+    with open("/proc/meminfo") as f:
+        for line in f:
+            key, val = line.split(":",1)
+            if key == "MemAvailable":
+                available_ram_kB = int(val.split()[0])
+                break
+    payload["mem_avail_MB"] = available_ram_kB // (1 << 10)
+
+    sock.sendto(json.dumps(payload).encode(), (BCAST_ADDR, PORT))
     # debug prints
     print(f"tx={tx_now - tx_prev} | rx={rx_now - rx_prev} => {BCAST_ADDR}:{PORT}")
 
